@@ -53,16 +53,21 @@ Review the procedure [Here](https://docs.redhat.com/en/documentation/openshift_c
   oc get route -n minio-tenant # user: minio pass: minio123
   ```
 * Create S3 bucket and api_key, secret_key
+  - user route or create with command below.
+  - https://min.io/docs/minio/linux/administration/identity-access-management/minio-user-management.html
+
   ```
-  oc exec -it myminio-standalone-0 -n minio-tenant -- mc alias set myminio http://localhost:9000 minio minio123
-  oc exec -it myminio-standalone-0 -n minio-tenant -- mc mb myminio/mybucket
+oc exec -it myminio-standalone-0 -n minio-tenant -- mc alias set myminio http://localhost:9000 minio minio123
+oc exec -it myminio-standalone-0 -n minio-tenant -- mc mb myminio/loki-bucket
+oc exec -it myminio-standalone-0 -n minio-tenant -- mc admin user add myminio loki-user AdJt308wCKq6ABgAjSYrNLztxPQoMpIxGCwVo1Uh
+oc exec -it myminio-standalone-0 -n minio-tenant -- mc admin policy attach myminio readwrite --user=loki-user
   ```
 * Create logging-loki-s3 secret 
   ```
   oc create secret generic logging-loki-s3 \
   --from-literal=bucketnames="loki-bucket" \
   --from-literal=endpoint="http://myminio-hl.minio-tenant.svc:9000" \
-  --from-literal=access_key_id="2ckK7ufBNy5r1e0JKcHJ" \
+  --from-literal=access_key_id="loki-user" \
   --from-literal=access_key_secret="AdJt308wCKq6ABgAjSYrNLztxPQoMpIxGCwVo1Uh" \
   -n openshift-logging --dry-run=client -o yaml > secret.yaml
 
@@ -77,4 +82,4 @@ Review the procedure [Here](https://docs.redhat.com/en/documentation/openshift_c
   ```
   oc apply -f  loki_6.yaml
   ```
-  > **Note** If all collectors are not restarting, delete daemonset and restart cluster-logging operator. 
+  > **Note** check CSV and Operator, if still installing you can try to restart it. If all collectors are not restarting, delete daemonset and restart cluster-logging operator. 
