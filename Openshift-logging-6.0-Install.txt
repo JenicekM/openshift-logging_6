@@ -1,0 +1,445 @@
+Openshift-logging 6.0 Install
+
+Procedure
+# 1. Install the Red Hat OpenShift Logging Operator, Loki Operator, and Cluster Observability Operator (COO) from OperatorHub.
+
+https://docs.openshift.com/container-platform/4.17/operators/user/olm-installing-operators-in-namespace.html
+
+oc get packagemanifests -n openshift-marketplace | egrep -i "logging|loki|observability"
+oc get packagemanifests -n openshift-marketplace cluster-logging -o yaml 
+stable-6.0
+"namespace": "openshift-logging"
+
+oc get packagemanifests -n openshift-marketplace loki-operator -o yaml
+name: stable-6.0
+openshift-operators-redhat
+
+oc get packagemanifests -n openshift-marketplace cluster-observability-operator -o yaml
+defaultChannel: stable
+namespace: openshift-cluster-observability-operator
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-logging #{{ openshiftLoggingNamespace }}
+  annotations:
+    openshift.io/node-selector: ""
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: cluster-logging
+  namespace: openshift-logging #{{ openshiftLoggingNamespace }}
+spec:
+#  targetNamespaces: 
+#  - openshift-logging #{{ openshiftLoggingNamespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-logging
+  namespace: openshift-logging #{{ openshiftLoggingNamespace }}
+spec:
+  channel: stable-6.0 #"{{ openshiftVersion }}"
+  installPlanApproval: Automatic #"{{ modeInstallPlan }}"
+  name: cluster-logging
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+---
+
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-operators-redhat #{{ openshiftOperatorRedHatNamespace }}
+  annotations:
+    openshift.io/node-selector: ""
+  labels:
+    openshift.io/cluster-monitoring: "true" 
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-operators-redhat
+  namespace: openshift-operators-redhat #{{ openshiftOperatorRedHatNamespace }}
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: loki-operator
+  namespace: openshift-operators-redhat #{{ openshiftOperatorRedHatNamespace }}
+spec:
+  channel: stable-6.0 #"{{ openshiftVersion }}"
+  installPlanApproval: Automatic #"{{ modeInstallPlan }}"
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  name: loki-operator
+
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-cluster-observability-operator #{{ observabilityOperatorNamespace }}
+  annotations:
+    openshift.io/node-selector: ""
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-operators-redhat
+  namespace: openshift-cluster-observability-operator #{{ observabilityOperatorNamespace }}
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-observability-operator
+  namespace: openshift-cluster-observability-operator #{{ observabilityOperatorNamespace }}
+spec:
+  channel: stable #"{{ openshiftVersion }}"
+  installPlanApproval: Automatic #"{{ modeInstallPlan }}"
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  name: cluster-observability-operator
+---
+  # 2. Create a secret to access an existing object storage bucket:
+---
+
+oc create secret generic logging-loki-s3 \
+  --from-literal=bucketnames="loki-bucket" \
+  --from-literal=endpoint="http://myminio-hl.minio-tenant.svc:9000" \
+  --from-literal=access_key_id="2ckK7ufBNy5r1e0JKcHJ" \
+  --from-literal=access_key_secret="AdJt308wCKq6ABgAjSYrNLztxPQoMpIxGCwVo1Uh" \
+  -n openshift-logging --dry-run=client -o yaml > secret.yaml
+
+apiVersion: v1
+data:
+  access_key_id: MmNrSzd1ZkJOeTVyMWUwSktjSEo=
+  access_key_secret: QWRKdDMwOHdDS3E2QUJnQWpTWXJOTHp0eFBRb01wSXhHQ3dWbzFVaA==
+  bucketnames: bG9raS1idWNrZXQ=
+  endpoint: aHR0cDovL215bWluaW8taGwubWluaW8tdGVuYW50LnN2Yzo5MDAw
+kind: Secret
+metadata:
+  creationTimestamp: null
+  name: logging-loki-s3
+  namespace: openshift-logging
+
+
+---
+
+# 3. Create a LokiStack custom resource (CR) in the openshift-logging namespace:
+
+
+apiVersion: loki.grafana.com/v1
+kind: LokiStack
+metadata:
+  name: logging-loki
+  namespace: openshift-logging #{{ k8sNamespace }}
+spec:
+## If you are on ROKS
+#  hashRing:
+#    memberlist:
+#      instanceAddrType: podIP
+#    type: memberlist
+  limits:
+    global:
+      retention:
+        days: 3 #{{ globalRetentionDays }}
+    tenants: 
+      application:
+        retention:
+          days: 3 #{{ maxApplicationRetention }}
+      infrastructure:
+        retention:
+          days: 3 #{{ maxInfraRetention }}
+      audit:
+        retention:
+          days: 3 #{{ maxAuditRetention }}          
+  managementState: Managed #{{ managementState }}
+  rules:
+    enabled: true
+    selector:
+      matchLabels:
+        openshift.io/cluster-monitoring: "true"
+    namespaceSelector:
+      matchLabels:
+        openshift.io/cluster-monitoring: "true"
+  replicationFactor: 2 
+  size: 1x.extra-small #{{ lokiStackSize }} 
+  storage:
+    schemas:
+    - version: v13
+      effectiveDate: '2022-06-01'
+    secret:
+      name: logging-loki-s3
+      type: s3
+  storageClassName: ocs-external-storagecluster-ceph-rbd #{{ storageClassName }}
+  tenants:
+    mode: openshift-logging
+---
+# 4. Create a service account for the collector:
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  creationTimestamp: null
+  name: collector
+  namespace: openshift-logging
+---
+# 5. Bind the ClusterRole to the service account:
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: logging-collector-logs-writer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: logging-collector-logs-writer
+subjects:
+- kind: ServiceAccount
+  name: collector
+  namespace: openshift-logging
+---
+# 6. Create a UIPlugin to enable the Log section in the Observe tab:
+
+---
+apiVersion: observability.openshift.io/v1alpha1
+kind: UIPlugin
+metadata:
+  name: logging
+spec:
+  type: Logging
+  logging:
+    lokiStack:
+      name: logging-loki
+---
+# 7. Add additional roles to the collector service account:
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: collect-application-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collect-application-logs
+subjects:
+- kind: ServiceAccount
+  name: collector
+  namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: collect-audit-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collect-audit-logs
+subjects:
+- kind: ServiceAccount
+  name: collector
+  namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: collect-infrastructure-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collect-infrastructure-logs
+subjects:
+- kind: ServiceAccount
+  name: collector
+  namespace: openshift-logging
+---
+
+# 8.Create a ClusterLogForwarder CR to configure log forwarding:
+
+---
+apiVersion: observability.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: collector
+  namespace: openshift-logging
+spec:
+  serviceAccount:
+    name: collector
+  outputs:
+  - name: default-lokistack
+    type: lokiStack
+    lokiStack:
+      target:
+        name: logging-loki
+        namespace: openshift-logging
+      authentication:
+        token:
+          from: serviceAccount
+    tls:
+      ca:
+        key: service-ca.crt
+        configMapName: openshift-service-ca.crt
+  pipelines:
+  - name: default-logstore
+    inputRefs:
+    - application
+    - infrastructure
+    - audit
+    outputRefs:
+    - default-lokistack
+---
+
+
+
+========
+
+# Openshift-logging 5,8 elasticsearch
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-logging #{{ openshiftLoggingNamespace }}
+  annotations:
+    openshift.io/node-selector: ""
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: cluster-logging
+  namespace: openshift-logging #{{ openshiftLoggingNamespace }}
+spec:
+#  targetNamespaces: 
+#  - openshift-logging #{{ openshiftLoggingNamespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-logging
+  namespace: openshift-logging #{{ openshiftLoggingNamespace }}
+spec:
+  channel: stable-5.8 #"{{ openshiftVersion }}"
+  installPlanApproval: Automatic #"{{ modeInstallPlan }}"
+  name: cluster-logging
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-operators-redhat #{{ openshiftOperatorRedHatNamespace }}
+  annotations:
+    openshift.io/node-selector: ""
+  labels:
+    openshift.io/cluster-monitoring: "true" 
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-operators-redhat
+  namespace: openshift-operators-redhat #{{ openshiftOperatorRedHatNamespace }}
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: elasticsearch-operator
+  namespace: openshift-operators-redhat #{{ openshiftOperatorRedHatNamespace }}
+spec:
+  channel: stable-5.8 #"{{ openshiftVersion }}"
+  installPlanApproval: Automatic #"{{ modeInstallPlan }}"
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  name: elasticsearch-operator
+---
+
+apiVersion: logging.openshift.io/v1
+kind: ClusterLogging
+metadata:
+  name: instance
+  namespace: openshift-logging #{{ k8sNamespace }}
+spec:
+  managementState: Managed
+  logStore:
+    type: "elasticsearch"
+    elasticsearch:
+      nodeCount: 3 #{{ elasticNodeCount }}
+      # nodeSelector:
+      #   {{ nodeSelector }}
+      redundancyPolicy: ZeroRedundancy #{{ elasticRedundancyPolicy }}
+      storage:
+        storageClassName: ocs-external-storagecluster-ceph-rbd #"{{ elasticStorageClass }}"
+        size: 10G #{{ elasticStorageSize }}
+      resources:
+        limits:
+          cpu: 2 #{{ elasticCPULimit }}
+          memory: 4Gi #{{ elasticMemoryLimit }}
+        requests:
+          cpu: 300m #{{ elasticCPURequest }}
+          memory: 1G #{{ elasticMemoryRequest }}
+    retentionPolicy: 
+      application:
+        maxAge: 5d #{{ maxApplicationRetention }}
+      infra:
+        maxAge: 7d #{{ maxInfraRetention }}
+      audit:
+        maxAge: 7d #{{ maxAuditRetention }}
+  visualization:
+    type: kibana
+    kibana:
+      replicas: 1
+      # nodeSelector:
+      #   {{ nodeSelector }}
+      resources:
+        limits:
+          cpu: 1 #{{ kibanaCPULimit }}
+          memory: 1Gi #{{ kibanaMemoryLimit }}
+        requests:
+          cpu: 500m #{{ kibanaCPURequest }}
+          memory: 500Mi #{{ kibanaMemoryRequest }}   
+  collection:
+    logs:
+      type: fluentd
+      fluentd:
+        resources:
+          limits:
+            cpu: 500m #{{ fluentdCPULimit }}
+            memory: 1Gi #{{ fluentdMemoryLimit }}
+          requests: 
+            cpu: 200m #{{ fluentdCPURequest }}
+            memory: 1Gi #{{ fluentdMemoryRequest }} 
+
+
+
+#If need audit logs, Forwarder needs to be implemented. 
+
+---
+apiVersion: logging.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: instance
+  namespace: openshift-logging
+spec:
+  pipelines: 
+  - name: all-to-default
+    inputRefs:
+    - infrastructure
+    - application
+    - audit
+    outputRefs:
+    - default

@@ -1,0 +1,170 @@
+---
+
+# 3. Create a LokiStack custom resource (CR) in the openshift-logging namespace:
+
+
+apiVersion: loki.grafana.com/v1
+kind: LokiStack
+metadata:
+  name: logging-loki
+  namespace: openshift-logging #{{ k8sNamespace }}
+spec:
+## If you are on ROKS
+#  hashRing:
+#    memberlist:
+#      instanceAddrType: podIP
+#    type: memberlist
+  limits:
+    global:
+      retention:
+        days: 3 #{{ globalRetentionDays }}
+    tenants: 
+      application:
+        retention:
+          days: 3 #{{ maxApplicationRetention }}
+      infrastructure:
+        retention:
+          days: 3 #{{ maxInfraRetention }}
+      audit:
+        retention:
+          days: 3 #{{ maxAuditRetention }}          
+  managementState: Managed #{{ managementState }}
+  rules:
+    enabled: true
+    selector:
+      matchLabels:
+        openshift.io/cluster-monitoring: "true"
+    namespaceSelector:
+      matchLabels:
+        openshift.io/cluster-monitoring: "true"
+  replicationFactor: 2 
+  size: 1x.extra-small #{{ lokiStackSize }} 
+  storage:
+    schemas:
+    - version: v13
+      effectiveDate: '2024-06-01'
+    secret:
+      name: logging-loki-s3
+      type: s3
+  storageClassName: ocs-external-storagecluster-ceph-rbd #{{ storageClassName }}
+  tenants:
+    mode: openshift-logging
+---
+# 4. Create a service account for the collector:
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  creationTimestamp: null
+  name: collector
+  namespace: openshift-logging
+---
+# 5. Bind the ClusterRole to the service account:
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: logging-collector-logs-writer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: logging-collector-logs-writer
+subjects:
+- kind: ServiceAccount
+  name: collector
+  namespace: openshift-logging
+---
+# 6. Create a UIPlugin to enable the Log section in the Observe tab:
+
+---
+apiVersion: observability.openshift.io/v1alpha1
+kind: UIPlugin
+metadata:
+  name: logging
+spec:
+  type: Logging
+  logging:
+    lokiStack:
+      name: logging-loki
+---
+# 7. Add additional roles to the collector service account:
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: collect-application-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collect-application-logs
+subjects:
+- kind: ServiceAccount
+  name: collector
+  namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: collect-audit-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collect-audit-logs
+subjects:
+- kind: ServiceAccount
+  name: collector
+  namespace: openshift-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: collect-infrastructure-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: collect-infrastructure-logs
+subjects:
+- kind: ServiceAccount
+  name: collector
+  namespace: openshift-logging
+---
+
+# 8.Create a ClusterLogForwarder CR to configure log forwarding:
+
+---
+apiVersion: observability.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: collector
+  namespace: openshift-logging
+spec:
+  serviceAccount:
+    name: collector
+  outputs:
+  - name: default-lokistack
+    type: lokiStack
+    lokiStack:
+      target:
+        name: logging-loki
+        namespace: openshift-logging
+      authentication:
+        token:
+          from: serviceAccount
+    tls:
+      ca:
+        key: service-ca.crt
+        configMapName: openshift-service-ca.crt
+  pipelines:
+  - name: default-logstore
+    inputRefs:
+    - application
+    - infrastructure
+    - audit
+    outputRefs:
+    - default-lokistack
+---
