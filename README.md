@@ -53,16 +53,18 @@ Review the procedure [Here](https://docs.redhat.com/en/documentation/openshift_c
   oc get route -n minio-tenant # user: minio pass: minio123
   ```
 * Create S3 bucket and api_key, secret_key
-  - user route or create with command below.
+  - use route or create with mc command below.
   - https://min.io/docs/minio/linux/administration/identity-access-management/minio-user-management.html
 
   ```
-oc exec -it myminio-standalone-0 -n minio-tenant -- mc alias set myminio http://localhost:9000 minio minio123
-oc exec -it myminio-standalone-0 -n minio-tenant -- mc mb myminio/loki-bucket
-oc exec -it myminio-standalone-0 -n minio-tenant -- mc admin user add myminio loki-user AdJt308wCKq6ABgAjSYrNLztxPQoMpIxGCwVo1Uh
-oc exec -it myminio-standalone-0 -n minio-tenant -- mc admin policy attach myminio readwrite --user=loki-user
+  oc exec -it myminio-standalone-0 -n minio-tenant -- mc alias set myminio http://localhost:9000 minio minio123
+  oc exec -it myminio-standalone-0 -n minio-tenant -- mc mb myminio/loki-bucket
+  oc exec -it myminio-standalone-0 -n minio-tenant -- mc admin user add myminio loki-user AdJt308wCKq6ABgAjSYrNLztxPQoMpIxGCwVo1Uh
+  oc exec -it myminio-standalone-0 -n minio-tenant -- mc admin policy attach myminio readwrite --user=loki-user
   ```
+
 * Create logging-loki-s3 secret 
+
   ```
   oc create secret generic logging-loki-s3 \
   --from-literal=bucketnames="loki-bucket" \
