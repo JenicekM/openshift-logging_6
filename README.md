@@ -40,14 +40,22 @@ Review the procedure [Here](https://docs.redhat.com/en/documentation/openshift_c
   ```
 
 ## **Deploy Loki**
-* Deploy Minio and create S3 bucket, 
+* Deploy Minio Operator, 
   ```
   git clone https://github.com/JenicekM/minio-operator.git;cd minio-operator
   oc apply -f minio-operator.yaml
   oc apply -f scc-minio-operator.yaml 
+  ```
+* Deploy Minio Operator tenant and create S3 bucket
+  ```
   oc apply -f tenant-openshift.yaml
   oc apply -f route.yaml 
   oc get route -n minio-tenant # user: minio pass: minio123
+  ```
+* Create S3 bucket and api_key, secret_key
+  ```
+  oc exec -it myminio-standalone-0 -n minio-tenant -- mc alias set myminio http://localhost:9000 minio minio123
+  oc exec -it myminio-standalone-0 -n minio-tenant -- mc mb myminio/mybucket
   ```
 * Create logging-loki-s3 secret 
   ```
