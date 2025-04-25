@@ -84,4 +84,28 @@ Review the procedure [Here](https://docs.redhat.com/en/documentation/openshift_c
   ```
   oc apply -f  loki_6.yaml
   ```
-  > **Note** check CSV and Operator, if still installing you can try to restart it. If all collectors are not restarting, delete daemonset and restart cluster-logging operator. 
+  > **Note** check CSV and Operator, if still installing you can try to restart it. If all collectors are not restarting, delete daemonset and restart cluster-logging operator.
+* Issues:
+  ===============
+Compactor or Ingester failing.
+```
+runtime.goexit
+        /usr/lib/golang/src/runtime/asm_amd64.s:1700
+level=error ts=2025-04-24T13:10:08.152384043Z caller=log.go:216 msg="error running loki" err="init compactor: failed to init delete store: failed to get s3 object: SerializationError: failed to unmarshal error message\n\tstatus code: 403, request id: , host id: \ncaused by: UnmarshalError: failed to unmarshal error message\n\t00000000  3c 21 44 4f 43 54 59 50  45 20 68 74 6d 6c 20 50  |<!DOCTYPE html P|\n00000010  55 42 4c 49 43 20 22 2d  2f 2f 57 33 43 2f 2f 44  |UBLIC \"-//W3C//D|\n00000020  54 44 20 48 54 4d 4c 20  34 2e 30 31 2f 2f 45 4e  |TD HTML 4.01//EN|\n00000030  22 20 22 68 74 74 70 3a  2f 2f 77 77 77 2e 77 33  |\" \"http://www
+
+Reason:
+Full Communication is not allowed
+
+oc get secret generic logging-minio-s3 -o yaml -n openshift-logging
+
+endpoint="http://minio-standalone-hl.d-minio-standalone:9000" # not working
+
+Possible solution:
+
+endpoint="http://minio-standalone-hl.d-minio-standalone.svc.cluster.local:9000"  # working
+
+or configure service minio-standalone-hl to generate IP or use pod IP
+
+http://100.103.1.123:9000
+```
+=========
