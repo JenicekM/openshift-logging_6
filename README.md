@@ -98,14 +98,14 @@ Full Communication is not allowed
 
 oc get secret generic logging-minio-s3 -o yaml -n openshift-logging
 
-endpoint="http://minio-standalone-hl.d-minio-standalone:9000" # not working
+endpoint="http://minio-standalone-hl.d-minio-standalone:9000" # not working, wrongly described url for service, missing svc
 
 Possible solution:
 
+endpoint="http://minio-standalone-hl.d-minio-standalone.svc:9000" # should working
 endpoint="http://minio-standalone-hl.d-minio-standalone.svc.cluster.local:9000"  # working
 
 or configure service minio-standalone-hl to generate IP or use pod IP
 
-http://100.103.1.123:9000
 ```
 =========
